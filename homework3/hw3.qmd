@@ -1,0 +1,209 @@
+---
+title: "Homework 3"
+author: "Max Rohde"
+subtitle: "BIOS 362 Spring 2022"
+date: "`r Sys.Date()`"
+toc: true
+toc-depth: 4
+format:
+  html:
+    code-fold: show
+    code-link: true
+    code-tools: true
+    self-contained: true
+    code-block-bg: "#e8e8e8"
+    code-block-border-left: "#31BAE9"
+    mainfont: Fira Sans
+    monofont: Menlo
+    theme: journal
+    fontsize: 1.1em
+    fig-format: retina
+    fig-cap-location: margin
+    tbl-cap-location: margin
+    fig-width: 8
+    fig-height: 6
+    cache: false
+    
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(geomtextpath)
+library(glmnet)
+```
+
+```{r}
+# Load in data
+df <- 
+ read.table(url(
+    'https://web.stanford.edu/~hastie/ElemStatLearn/datasets/prostate.data')) %>%
+  as_tibble()
+
+# Create training and testing subsets
+df_train <-
+  df %>%
+  filter(train == TRUE) %>%
+  select(-train)
+
+df_test <-
+  df %>%
+  filter(train == FALSE) %>%
+  select(-train)
+```
+
+Reproduce HTF Table 3.1, page 50
+
+```{r}
+df_train %>%
+  select(lcavol, lweight, age, lbph, svi, lcp, gleason) %>%
+  cor(method = "pearson")
+```
+
+Train a least-square  model to predict `lcavol`
+
+```{r}
+mod <- lm(lcavol ~ ., data = df_train)
+
+summary(mod)
+```
+
+Compute average squared error loss on the test set
+
+```{r}
+y_pred <- predict(mod, df_test)
+y_true <- df_test$lcavol
+
+# Average squared error loss
+mean((y_true - y_pred)^2)
+```
+
+Train a ridge regression model using the `glmnet` function, and tune the value of `lambda`
+
+```{r}
+get_test_error <- function(lambda){
+  x <- select(df_train, lweight:lpsa)
+  y <- df_train$lcavol
+  
+  # Fit model
+  mod <- glmnet(x,y, alpha=0, lambda=lambda)
+  
+  # Generate predictions
+  x_new <- as.matrix(select(df_test, lweight:lpsa))
+  y_pred <- predict(mod, x_new)
+  y_true <- df_test$lcavol
+  
+  return(mean((y_true - y_pred)^2))
+}
+```
+
+```{r}
+lambdas <- seq(0,0.5, length.out=1e3)
+
+test_error <- map_dbl(lambdas, ~get_test_error(.x))
+```
+
+```{r}
+tibble(lambda = lambdas, test_error) %>%
+  ggplot() +
+  aes(x=lambda, y=test_error) +
+  geom_line() +
+  theme_bw()
+```
+
+We see that the minimum test error is acheived when $\lambda \approx 0.113$
+
+```{r}
+lambdas[[which.min(test_error)]]
+```
+
+```{r}
+x <- select(df_train, lweight:lpsa)
+y <- df_train$lcavol
+  
+# Fit final model
+mod <- glmnet(x,y, alpha=0, lambda=lambdas[[which.min(test_error)]])
+```
+
+```{r}
+# View coefficients
+coef(mod)
+```
+
+
+Create a figure that shows the training and test error associated with ridge regression as a function of $\lambda$
+
+```{r}
+get_train_error <- function(lambda){
+  x <- select(df_train, lweight:lpsa)
+  y <- df_train$lcavol
+  
+  # Fit model
+  mod <- glmnet(x,y, alpha=0, lambda=lambda)
+  
+  # Generate predictions
+  x_new <- as.matrix(select(df_train, lweight:lpsa))
+  y_pred <- predict(mod, x_new)
+  y_true <- df_train$lcavol
+  
+  return(mean((y_true - y_pred)^2))
+}
+```
+
+```{r}
+lambdas <- seq(0,0.5, length.out=1e3)
+
+test_error <- map_dbl(lambdas, ~get_test_error(.x))
+train_error <- map_dbl(lambdas, ~get_train_error(.x))
+```
+
+```{r}
+tibble(lambda = lambdas, test_error, train_error) %>%
+  pivot_longer(test_error:train_error,
+               names_to = "type",
+               values_to = "error") %>%
+  ggplot() +
+  aes(x=lambda,
+      y=error,
+      color=type,
+      label=type) +
+  geom_textline() +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+Create a path diagram of the ridge regression analysis, similar to HTF Figure 3.8
+
+```{r}
+get_coef <- function(lambda){
+  x <- select(df_train, lweight:lpsa)
+  y <- df_train$lcavol
+  
+  # Fit model
+  mod <- glmnet(x,y, alpha=0, lambda=lambda)
+  
+  coefs <- 
+  coef(mod) %>% as.numeric()
+  
+  return(tibble(param = rownames(coef(mod)),
+                value = coefs,
+                lambda = lambda))
+}
+
+# Generate path values
+coef_df <- map_dfr(seq(0,10, length.out=1e3), ~get_coef(.x))
+```
+
+```{r}
+coef_df %>%
+  filter(param != "(Intercept)") %>%
+  ggplot() +
+  aes(x=lambda, y=value, color=param, label=param) +
+  geom_textline(key_glyph="path") +
+  scale_color_brewer(type = "qual", palette=2) +
+  theme_bw()
+```
+
+
