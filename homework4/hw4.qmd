@@ -1,0 +1,147 @@
+---
+title: "Homework 4"
+author: "Max Rohde"
+subtitle: "BIOS 362 Spring 2022"
+date: "`r Sys.Date()`"
+toc: true
+toc-depth: 4
+format:
+  html:
+    code-fold: true
+    code-link: true
+    code-tools: true
+    self-contained: true
+    code-block-bg: "#e8e8e8"
+    code-block-border-left: "#31BAE9"
+    mainfont: Fira Sans
+    monofont: Menlo
+    theme: journal
+    fontsize: 16px
+    fig-format: retina
+    fig-cap-location: margin
+    tbl-cap-location: margin
+    fig-width: 8
+    fig-height: 6
+    cache: false
+    
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+```
+
+Retrieve the vowel data (training and testing) from the HTF website or R package.
+
+```{r}
+train <- read_csv("vowel_train.csv")
+test <- read_csv("vowel_test.csv")
+```
+
+```{r}
+inp <- paste("x", 1:10, sep=".")
+
+inpx <- as.matrix(train[inp])
+```
+
+```{r}
+inpx <- t(t(inpx) - colMeans(inpx))
+```
+
+```{r}
+cenx <- t(sapply(unique(train$y), function(cls) {
+  colMeans(inpx[train$y == cls, ])
+}))
+
+sigx <- Reduce(`+`, lapply(unique(train$y), function(cls) {
+  x <- inpx[train$y == cls, ]
+  x <- t(t(x) - colMeans(x))
+  t(x) %*% x
+})) / (nrow(train) - 11)
+```
+
+```{r}
+svdx <- svd(sigx)
+sphx <- inpx %*% svdx$v %*% diag(sqrt(1 / svdx$d))
+sphc <- cenx %*% svdx$v %*% diag(sqrt(1 / svdx$d))
+
+svdc <- svd(sphc)
+canx <- sphx %*% svdc$v
+canc <- sphc %*% svdc$v
+```
+
+```{r}
+dz <- function(z, mz, k) {
+  zc <- t(t(z[, 1:k]) - mz[1:k])
+  drop(zc^2 %*% rep(1, k))
+}
+
+dx <- function(x, mz, k) {
+  sphx <- x %*% svdx$v %*% diag(sqrt(1 / svdx$d))
+  canx <- sphx %*% svdc$v
+  res <- dz(canx, drop(mz), k)
+  attr(res, "canx") <- canx
+  return(res)
+}
+```
+
+**Implement reduced-rank LDA using the vowel training data. Check your work by plotting the first two discriminant variables as in HTF Figure 4.4.**
+
+```{r}
+tibble(var1 = canx[,1],
+       var2 = canx[,2],
+       category =  as.factor(train$y)) %>%
+  ggplot() +
+  aes(x = var1,
+      y = var2,
+      color = category) +
+  geom_point() +
+  cowplot::theme_cowplot(font_size = 11, font_family = "Source Sans Pro") +
+  labs(title = "First two discriminant variables",
+       subtitle = "Reproducing ESLR 4.4",
+       x = "First discriminant variable",
+       y = "Second discriminant variable",
+       color="") +
+  theme(legend.position = "none")
+  
+```
+
+**Use the vowel testing data to estimate the expected prediction error (assuming zero-one loss), varying the number of canonical variables used for classification.**
+
+**Plot the EPE as a function of the number of discriminant variables, and compare this with HTF Figure 4.10.**
+
+```{r}
+## compute misclassification fraction using k canonical variables
+err <- function(dat0, k = 2) {
+  dat0x <- as.matrix(dat0[inp])
+  dat0x <- t(t(dat0x) - colMeans(train[inp]))
+  dat0c <- dat0x %*% svdx$v %*% diag(sqrt(1 / svdx$d)) %*% svdc$v
+  dzl <- apply(canc, 1, function(mz) {
+    dz(dat0c, drop(mz), k = k)
+  })
+  cls <- apply(dzl, 1, which.min)
+  mean(cls != dat0$y)
+}
+```
+
+```{r}
+tibble(train_error = map_dbl(1:10, ~err(train, .x)),
+         test_error = map_dbl(1:10, ~err(test, .x)),
+         num_input = 1:10) %>%
+  pivot_longer(train_error : test_error) %>%
+  ggplot() +
+  aes(x=num_input, y=value, color=name) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks=1:10) +
+  cowplot::theme_cowplot(font_size = 11, font_family = "Source Sans Pro") +
+  labs(title = "EPE as a function of the number of discriminant variables",
+       subtitle = "Reproducing ESLR 4.10",
+       x = "Number of discriminant variables",
+       y = "Misclassificaiton Rate",
+       color="")
+  
+```
+
