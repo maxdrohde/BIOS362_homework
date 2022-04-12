@@ -1,0 +1,159 @@
+---
+title: "Homework 7"
+subtitle: "BIOS 362 Spring 2022"
+author: "Max Rohde"
+date: "`r Sys.Date()`"
+toc: true
+toc-depth: 4
+format:
+  html:
+    code-tools: true
+    code-fold: show
+    code-link: true
+    self-contained: true
+    code-block-bg: "#f1f3f5"
+    code-block-border-left: "#31BAE9"
+    mainfont: Source Sans Pro
+    monofont: Menlo
+    theme: journal
+    fontsize: 16px
+    fig-format: retina
+    fig-cap-location: margin
+    tbl-cap-location: top
+    fig-width: 8
+    fig-height: 6
+  
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(tensorflow)
+library(keras)
+
+# install_tensorflow()
+```
+
+# Part 1: Keras tutorial
+
+```{r}
+fashion_mnist <- dataset_fashion_mnist()
+
+c(train_images, train_labels) %<-% fashion_mnist$train
+c(test_images, test_labels) %<-% fashion_mnist$test
+
+train_images <- train_images / 255
+test_images <- test_images / 255
+```
+
+```{r}
+class_names = c('T-shirt/top',
+                'Trouser',
+                'Pullover',
+                'Dress',
+                'Coat', 
+                'Sandal',
+                'Shirt',
+                'Sneaker',
+                'Bag',
+                'Ankle boot')
+```
+
+```{r}
+model <- keras_model_sequential()
+model %>%
+  layer_flatten(input_shape = c(28, 28)) %>%
+  layer_dense(units = 128, activation = 'relu') %>%
+  layer_dense(units = 10, activation = 'softmax')
+```
+
+```{r}
+model %>% compile(
+  optimizer = 'adam', 
+  loss = 'sparse_categorical_crossentropy',
+  metrics = c('accuracy')
+)
+```
+
+```{r}
+model %>% fit(train_images,
+              train_labels,
+              epochs = 5)
+```
+
+```{r}
+score <- model %>% evaluate(test_images, test_labels, verbose = 0)
+
+score
+```
+
+# Part 2
+
+> Use the Keras library to re-implement the simple neural network discussed during lecture for the mixture data (see `nnet.R`). Use a single 10-node hidden layer; fully connected.
+
+## nnet.R code
+
+```{r}
+library(ElemStatLearn)
+library(nnet)
+
+## load binary classification example data
+data("mixture.example")
+dat <- mixture.example
+
+## fit single hidden layer, fully connected NN 
+## 10 hidden nodes
+fit <- nnet(x=dat$x, y=dat$y, size=10, entropy=TRUE, decay=0)
+
+nnet_pred <-
+fit %>%
+  predict(dat$x)
+```
+
+```{r}
+model <- keras_model_sequential()
+
+model <- keras_model_sequential()
+model %>%
+  layer_dense(units = 10, activation = 'relu', input_shape = c(2)) %>%
+  layer_dense(units = 1, activation = 'sigmoid')
+```
+
+```{r}
+model %>% compile(
+  optimizer = 'adam', 
+  loss = 'binary_crossentropy',
+  metrics = c('accuracy')
+)
+```
+
+```{r}
+model %>% fit(dat$x,
+              dat$y,
+              epochs = 10)
+```
+
+# Part 3
+
+> Create a figure to illustrate that the predictions are (or are not) similar using the 'nnet' function versus the Keras model.
+
+```{r}
+keras_pred <-
+  model %>%
+  predict(dat$x)
+
+keras_pred <- keras_pred[,1]
+```
+
+We see that the `Keras` and `nnet` predictions are similar, but are not the same.
+
+```{r}
+tibble(nnet_pred, keras_pred, class=dat$y) %>%
+  mutate(class=as.factor(class)) %>%
+  ggplot() +
+  aes(x=nnet_pred, y=keras_pred, color=class) +
+  geom_point()
+```
+
